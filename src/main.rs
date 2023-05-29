@@ -23,23 +23,12 @@ fn main() -> Result<(), eframe::Error> {
 }
 
 struct Gui<> {
-    //flight_plot_buf: Vec<u8>,
-    ///// Width + Height
-    //flight_plot_size: (u32, u32),
-    //flight_plot_tex: Option<TextureHandle>,
+    tabstate: usize,
 }
 
 impl<> Default for Gui<> {
     fn default() -> Self {
-        //let flight_plot_buf = Vec::new();
-
-        //Self {
-        //    flight_plot_buf,
-        //    flight_plot_size: (0, 0),
-        //    flight_plot_tex: None,
-        //}
-        
-        Self {  }
+        Self {tabstate: 0}
     }
 }
 
@@ -106,16 +95,6 @@ impl<> eframe::App for Gui<> {
 
             let width = rect.width() as u32;
             let height = rect.height() as u32;
-
-            //if (width, height) != self.flight_plot_size {
-            //    self.flight_plot_size = (width, height);
-
-            //    // Multiply by 3 since each pixel is 3 bytes
-            //    let size = (width * height * 3) as usize;
-            //    self.flight_plot_buf = vec![0; size];
-            //}
-
-            //let backend = BitMapBackend::with_buffer(&mut self.flight_plot_buf, self.flight_plot_size).into_drawing_area();
             
             let backend = PainterBackend::new(ui.painter(), rect).into_drawing_area();
 
@@ -167,26 +146,14 @@ impl<> eframe::App for Gui<> {
                 .draw().unwrap();
 
             backend.present().unwrap();
-
-            // Drop the chart and backend so we can borrow the buffer
-            // drop(chart);
-            // drop(backend);
-
-            // let render = ColorImage::from_rgb([width as usize, height as usize], &self.flight_plot_buf);
-
-            // let texture = self.flight_plot_tex.get_or_insert_with(|| {
-            //     ui.ctx().load_texture("flight-plot-tex", render.clone(), Default::default())
-            // });
-
-            // let options = TextureOptions::default();
-
-            // texture.set(render, options);
-
-            // ui.image(texture, [width as f32, height as f32]);
         });
 
         egui::TopBottomPanel::bottom("render_time").show(ctx, |ui| {
-            ui.label(format!("Render Time: {}", start_time.elapsed().as_micros()));
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.tabstate, 0, "X");
+                ui.selectable_value(&mut self.tabstate, 1, "Y");
+                ui.selectable_value(&mut self.tabstate, 2, "Z");
+            });
         });
     }
 }
