@@ -2,32 +2,37 @@
 
 use std::{sync::Arc, mem::size_of, time::{Instant, Duration}, cmp::Ordering, thread, f32::consts::PI};
 
-use eframe::{egui::{self, TextureOptions, Painter, Rect}, epaint::{Shape, ColorImage, TextureHandle, Color32, Rounding, Pos2, Stroke, FontId, PathShape}, emath::Align2};
+use eframe::{egui::{self, TextureOptions, Painter, Rect}, epaint::{Shape, ColorImage, TextureHandle, Color32, Rounding, Pos2, Stroke, FontId, PathShape, Vec2}, emath::Align2, CreationContext};
 use plotters::{prelude::{BitMapBackend, IntoDrawingArea, ChartBuilder, PathElement, DrawingBackend, IntoLinspace, Rectangle}, style::{full_palette::{BLACK, RED, WHITE}, IntoFont, Color, BLUE}, series::{LineSeries, SurfaceSeries}};
-use plotters_backend::*;
-use plotters_backend::FontFamily as PlottersFontFamily;
-use egui::FontFamily as EguiFontFamily;
+use plotter_backend::EguiBackend;
+
+mod plotter_backend;
 
 static NAME: &str = "Ape-Aerotelem";
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
         maximized: true,
+        min_window_size: Some(Vec2::new(320.0, 240.0)),
         ..Default::default()
     };
     eframe::run_native(
         NAME,
         options,
-        Box::new(|_cc| Box::<Gui>::default()),
+        Box::new(|cc| Box::new(Gui::new(cc))),
     )
 }
 
-struct Gui<> {
+struct Gui {
     tabstate: usize,
 }
 
-impl<> Default for Gui<> {
-    fn default() -> Self {
+impl Gui {
+    fn new(cc: &CreationContext) -> Self {
+        // Disable feathering to combat artifacts caused by 3d plots
+        cc.egui_ctx.tessellation_options_mut(|tess_options| {
+            tess_options.feathering = false;
+        });
         Self {tabstate: 0}
     }
 }
@@ -96,7 +101,7 @@ impl<> eframe::App for Gui<> {
             let width = rect.width() as u32;
             let height = rect.height() as u32;
             
-            let backend = PainterBackend::new(ui.painter(), rect).into_drawing_area();
+            let backend = EguiBackend::new(ui).into_drawing_area();
 
             backend.fill(&WHITE).unwrap();
             let x_axis = (-3.0..3.0).step(0.1);
@@ -154,233 +159,8 @@ impl<> eframe::App for Gui<> {
                 ui.selectable_value(&mut self.tabstate, 1, "Y");
                 ui.selectable_value(&mut self.tabstate, 2, "Z");
             });
+            ui.label(format!("Render Time: {}", start_time.elapsed().as_micros()));
         });
     }
 }
 
-struct PainterBackend<'a> {
-    painter: &'a Painter,
-    bounds: Rect,
-}
-
-impl<'a> PainterBackend<'a> {
-    pub fn new(painter: &'a Painter, bounds: Rect) -> Self {
-        Self {
-            painter,
-            bounds
-        }
-    }
-}
-
-impl<'a> DrawingBackend for PainterBackend<'a> {
-    type ErrorType = std::io::Error;
-
-    fn get_size(&self) -> (u32, u32) {
-        (self.bounds.width() as u32, self.bounds.height() as u32)
-    }
-
-    fn ensure_prepared(&mut self) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
-        Ok(())
-    }
-
-    fn present(&mut self) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
-        Ok(())
-    }
-
-    fn draw_pixel(
-            &mut self,
-            point: (i32, i32),
-            color: BackendColor,
-        ) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
-
-        let (x0, y0) = point;
-
-        let mut x0 = x0 as f32;
-        let mut y0 = y0 as f32;
-
-        x0 += self.bounds.min.x;
-        y0 += self.bounds.min.y;
-
-        let (x1, y1) = (x0 + 1.0, y0 + 1.0);
-
-        let (r, g, b) = color.rgb;
-        let a = (color.alpha * 255.0) as u8;
-         
-        let color = Color32::from_rgba_unmultiplied(r, g, b, a);
-
-        let stroke = Stroke::new(1.0, color);
-
-        self.painter.line_segment([Pos2{x: x0, y: y0}, Pos2{x: x1, y: y1}], stroke);
-
-        Ok(())
-    }
-
-    fn draw_line<S: BackendStyle>(
-            &mut self,
-            from: (i32, i32),
-            to: (i32, i32),
-            style: &S,
-        ) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
-
-        let (x0, y0) = from;
-        let (x1, y1) = to;
-
-        let mut x0 = x0 as f32;
-        let mut y0 = y0 as f32;
-        let mut x1 = x1 as f32;
-        let mut y1 = y1 as f32;
-
-        x0 += self.bounds.min.x;
-        y0 += self.bounds.min.y;
-        x1 += self.bounds.min.x;
-        y1 += self.bounds.min.y;
-
-        let pos0 = Pos2 {x: x0, y: y0};
-        let pos1 = Pos2 {x: x1, y: y1};
-
-        let (r, g, b) = style.color().rgb;
-        let a = (style.color().alpha * 255.0) as u8;
-         
-        let color = Color32::from_rgba_unmultiplied(r, g, b, a);
-
-        let stroke = Stroke::new(style.stroke_width() as f32, color);
-
-        self.painter.line_segment([pos0, pos1], stroke);
-
-        Ok(())
-    }
-
-    fn draw_text<TStyle: BackendTextStyle>(
-            &mut self,
-            text: &str,
-            style: &TStyle,
-            pos: (i32, i32),
-        ) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
-
-        let (x, y) = pos;
-
-        let mut x = x as f32;
-        let mut y = y as f32;
-
-        x += self.bounds.min.x;
-        y += self.bounds.min.y;
-
-        let pos = Pos2 {x, y};
-
-        let font_size = style.size() as f32;
-        let font_family = match style.family() {
-            PlottersFontFamily::Serif | PlottersFontFamily::SansSerif => EguiFontFamily::Proportional,
-            PlottersFontFamily::Monospace => EguiFontFamily::Monospace,
-            PlottersFontFamily::Name(string) => EguiFontFamily::Name(string.into()),
-        };
-
-        let font = FontId {
-            size: font_size,
-            family: font_family,
-        };
-
-        let (r, g, b) = style.color().rgb;
-        let a = (style.color().alpha * 255.0) as u8;
-         
-        let color = Color32::from_rgba_unmultiplied(r, g, b, a);
-
-        self.painter.text(pos, Align2::LEFT_TOP, text, font, color);
-
-        Ok(())
-    }
-
-    fn draw_path<S: BackendStyle, I: IntoIterator<Item = BackendCoord>>(
-            &mut self,
-            path: I,
-            style: &S,
-        ) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
-
-        let points: Vec<Pos2> = path.into_iter().map(|point| {
-            let (x, y) = point;
-
-            let mut x = x as f32;
-            let mut y = y as f32;
-
-            x += self.bounds.min.x;
-            y += self.bounds.min.y;
-
-            Pos2 {x, y}
-        }).collect();
-
-        let (r, g, b) = style.color().rgb;
-        
-        let color = Color32::from_rgb(r, g, b);
-
-        let stroke = Stroke::new(style.stroke_width() as f32, color.clone());
-
-        let shape = PathShape::line(points, stroke);
-
-        self.painter.add(shape);
-        Ok(())
-    }
-
-    fn fill_polygon<S: BackendStyle, I: IntoIterator<Item = BackendCoord>>(
-            &mut self,
-            vert: I,
-            style: &S,
-        ) -> Result<(), DrawingErrorKind<Self::ErrorType>> {
-
-        let mut points: Vec<Pos2> = vert.into_iter().map(|point| {
-            let (x, y) = point;
-            
-            let mut x = x as f32;
-            let mut y = y as f32;
-
-            x += self.bounds.min.x;
-            y += self.bounds.min.y;
-
-            Pos2 {x, y}
-        }).collect();
-
-        // Make them clockwise. Plotter has a habit of making them not clockwise,
-        // or in order for that matter. Very unusual.
-        let mut center_x = 0.0;
-        let mut center_y = 0.0;
-
-        for point in &points {
-            center_x += point.x * (1.0/(points.len() as f32));
-            center_y += point.y * (1.0/(points.len() as f32));
-        }
-
-        points.sort_by(|a, b| {
-            let angle1 = (a.x - center_x).atan2(a.y - center_y);
-            let angle2 = (b.x - center_x).atan2(b.y - center_y);
-            
-            angle2.partial_cmp(&angle1).unwrap()
-        });
-
-        // Do not print a polygon if there is an invalid internal angle
-        for (i, point) in points[..points.len()-1].iter().enumerate() {
-            let angle1 = (point.x - center_x).atan2(point.y - center_y);
-
-            let point = points[i + 1];
-
-            let angle2 = (point.x - center_x).atan2(point.y - center_y);
-
-            if (angle1 - angle2).abs() < 0.01 * PI{
-                return Ok(())
-            }
-        }
-
-        let (r, g, b) = style.color().rgb;
-
-        let a = (style.color().alpha * 255.0) as u8;
-        
-        let color = Color32::from_rgba_unmultiplied(r, g, b, a);
-
-        let fill = color.clone();
-
-        let stroke = Stroke::NONE;   
-
-        let shape = PathShape::convex_polygon(points, fill, stroke);
-
-        self.painter.add(shape);
-
-        Ok(())
-    }
-}
